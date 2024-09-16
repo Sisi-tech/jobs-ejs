@@ -3,7 +3,11 @@ require("express-async-errors");
 require("dotenv").config();
 const session = require("express-session");
 const MongoDBStore = require("connect-mongodb-session")(session);
-const url = process.env.MONGO_URL;
+const url = process.env.MONGO_URI;
+const passport = require("passport");
+const passportInit = require("./passport/passportInit");
+const secretWordRouter = require("./routes/secretWord");
+const auth = require("./middleware/auth");
 
 const store = new MongoDBStore({
     uri: url,
@@ -26,6 +30,16 @@ if (app.get("evn") === "production") {
 }
 app.use(session(sessionParams));
 app.use(require("connect-flash")());
+app.use(require("./middleware/storeLocals"));
+app.get("/", (req, res) => {
+    res.render("index");
+});
+app.use("/sessions", require("./routes/sessionRoutes"));
+passportInit();
+app.use(passport.initialize());
+app.use(passport.session());
+app.use("/secretWord", auth, secretWordRouter);
+
 
 const app = express();
 
@@ -63,6 +77,7 @@ const port = process.env.PORT || 5000;
 
 const start = async () => {
     try {
+        await require("./db/connect")(process.env.MONGO_URI);
         app.listen(port, () => {
             console.log(`Server is listening on port ${port}...`)
         })

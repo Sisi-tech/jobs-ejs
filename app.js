@@ -3,7 +3,7 @@ require("express-async-errors");
 require("dotenv").config();
 const session = require("express-session");
 const MongoDBStore = require("connect-mongodb-session")(session);
-const url = process.env.MONGO_URI;
+// const url = process.env.MONGO_URI;
 const passport = require("passport");
 const passportInit = require("./passport/passportInit");
 const secretWordRouter = require("./routes/secretWord");
@@ -14,6 +14,11 @@ const helmet = require('helmet');
 const xss = require('xss-clean');
 const rateLimit = require('express-rate-limit');
 
+let mongoURL = process.env.MONGO_URI;
+if (process.env.NODE_ENV == "test") {
+    mongoURL = process.env.MONGO_URI_TEST;
+}
+
 const app = express();
 app.use(cookieParser());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -23,7 +28,7 @@ app.use(xss());
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
 
 const store = new MongoDBStore({
-    uri: url,
+    uri: mongoURL,
     collection: "mySessions",
 });
 store.on("error", function (error) {
@@ -36,6 +41,15 @@ const sessionParams = {
     store: store,
     cookie: { secure: false, sameSite: "strict" },
 };
+
+app.use((req, res, next) => {
+    if (req.path == "/multiply") {
+        res.set("Content-Type", "application/json");
+    } else {
+        res.set("Content-Type", "text/html");
+    }
+    next();
+});
 
 if (app.get("evn") === "production") {
     app.set("trust proxy", 1);
@@ -86,12 +100,22 @@ app.use((err, req, res, next) => {
     console.log(err);
 });
 
+app.get("multiply", (req, res) => {
+    const result = req.query.first * req.query.second;
+    if (result.isNaN) {
+        result = "NaN";
+    } else if (result == null) {
+        result = "null";
+    }
+    res.json({ result: result });
+})
+
 const port = process.env.PORT || 5000;
 
-const start = async () => {
+const start = () => {
     try {
-        await require("./db/connect")(process.env.MONGO_URI);
-        app.listen(port, () => {
+        require("./db/connect")(process.env.MONGO_URI);
+        return app.listen(port, () => {
             console.log(`Server is listening on port ${port}...`)
         })
     } catch (error) {
@@ -100,3 +124,5 @@ const start = async () => {
 };
 
 start();
+
+module.exports = { app }

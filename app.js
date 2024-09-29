@@ -3,10 +3,32 @@ require("express-async-errors");
 require("dotenv").config();
 const session = require("express-session");
 const MongoDBStore = require("connect-mongodb-session")(session);
-const url = process.env.MONGO_URL;
+// const url = process.env.MONGO_URI;
+const passport = require("passport");
+const passportInit = require("./passport/passportInit");
+const secretWordRouter = require("./routes/secretWord");
+const auth = require("./middleware/auth");
+const cookieParser = require('cookie-parser');
+const csrf = require('host-csrf');
+const helmet = require('helmet');
+const xss = require('xss-clean');
+const rateLimit = require('express-rate-limit');
+
+let mongoURL = process.env.MONGO_URI;
+if (process.env.NODE_ENV == "test") {
+    mongoURL = process.env.MONGO_URI_TEST;
+}
+
+const app = express();
+app.use(cookieParser());
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(csrf());
+app.use(helmet());
+app.use(xss());
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
 
 const store = new MongoDBStore({
-    uri: url,
+    uri: mongoURL,
     collection: "mySessions",
 });
 store.on("error", function (error) {
@@ -20,14 +42,32 @@ const sessionParams = {
     cookie: { secure: false, sameSite: "strict" },
 };
 
+app.use((req, res, next) => {
+    if (req.path == "/multiply") {
+        res.set("Content-Type", "application/json");
+    } else {
+        res.set("Content-Type", "text/html");
+    }
+    next();
+});
+
 if (app.get("evn") === "production") {
     app.set("trust proxy", 1);
     sessionParams.cookie.secure = true;
 }
 app.use(session(sessionParams));
 app.use(require("connect-flash")());
+app.use(require("./middleware/storeLocals"));
+app.get("/", (req, res) => {
+    res.render("index");
+});
+app.use("/sessions", require("./routes/sessionRoutes"));
+passportInit();
+app.use(passport.initialize());
+app.use(passport.session());
+app.use("/secretWord", auth, secretWordRouter);
 
-const app = express();
+
 
 app.set("view engine", "ejs");
 app.use(require("body-parser").urlencoded({ extended: true }));
@@ -38,6 +78,7 @@ app.get("/secretWord", (req, res) => {
         req.session.secretWord = "syzygy";
     }
     res.render("secretWord", { secretWord: req.session.secretWord });
+    console.log('Cookies: ', req.cookies)
 });
 app.post("/secretWord", (req, res) => {
     if (req.body.secretWord.toUpperCase()[0] == "P") {
@@ -59,11 +100,22 @@ app.use((err, req, res, next) => {
     console.log(err);
 });
 
+app.get("multiply", (req, res) => {
+    const result = req.query.first * req.query.second;
+    if (result.isNaN) {
+        result = "NaN";
+    } else if (result == null) {
+        result = "null";
+    }
+    res.json({ result: result });
+})
+
 const port = process.env.PORT || 5000;
 
-const start = async () => {
+const start = () => {
     try {
-        app.listen(port, () => {
+        require("./db/connect")(process.env.MONGO_URI);
+        return app.listen(port, () => {
             console.log(`Server is listening on port ${port}...`)
         })
     } catch (error) {
@@ -72,3 +124,5 @@ const start = async () => {
 };
 
 start();
+
+module.exports = { app }
